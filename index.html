@@ -782,7 +782,7 @@ async function loadRecords() {
   const tbody = document.getElementById('crud-tbody')
   tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="icon">⏳</div>Carregando...</div></td></tr>'
 
-  const { data, error } = await sb.from('registros').select('*').eq('user_id', user.id).order('created_at', { ascending: false })
+  const { data, error } = await sb.from('Registros').select('*').eq('user_id', user.id).order('created_at', { ascending: false })
 
   if (error) {
     tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="icon">❌</div>Erro ao carregar registros.</div></td></tr>'
