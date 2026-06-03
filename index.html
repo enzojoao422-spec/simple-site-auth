@@ -674,6 +674,7 @@ async function verifyLoginOTP() {
   }
 
   clearInterval(verifyTimerInterval)
+  pendingLoginEmail = ''
   openDashboard()
 }
 
@@ -1002,11 +1003,12 @@ document.getElementById('modal-overlay').addEventListener('click', e => {
 
 // ---- INIT ----
 sb.auth.getSession().then(({ data }) => {
-  if (data.session) openDashboard()
+  if (data.session && !pendingLoginEmail) openDashboard()
 })
 
 sb.auth.onAuthStateChange((event, session) => {
-  if (event === 'SIGNED_IN' && session) openDashboard()
+  // Só abre o dashboard se não estiver aguardando verificação OTP
+  if (event === 'SIGNED_IN' && session && !pendingLoginEmail) openDashboard()
 })
 </script>
 
