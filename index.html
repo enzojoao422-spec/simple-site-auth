@@ -774,14 +774,23 @@ async function openDashboard() {
   }
 }
 
-// ---- CRUD (localStorage + opcional Supabase) ----
-function loadRecords() {
-  records = JSON.parse(localStorage.getItem('crud_records') || '[]')
-  renderTable()
-}
+// ---- CRUD (Supabase) ----
+async function loadRecords() {
+  const { data: { user } } = await sb.auth.getUser()
+  if (!user) return
 
-function saveRecords() {
-  localStorage.setItem('crud_records', JSON.stringify(records))
+  const tbody = document.getElementById('crud-tbody')
+  tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="icon">⏳</div>Carregando...</div></td></tr>'
+
+  const { data, error } = await sb.from('registros').select('*').eq('user_id', user.id).order('created_at', { ascending: false })
+
+  if (error) {
+    tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="icon">❌</div>Erro ao carregar registros.</div></td></tr>'
+    return
+  }
+
+  records = data || []
+  renderTable()
 }
 
 function renderTable() {
@@ -837,7 +846,7 @@ function closeModal() {
   editingId = null
 }
 
-function saveRecord() {
+async function saveRecord() {
   const title = document.getElementById('field-title').value.trim()
   const category = document.getElementById('field-category').value
   const desc = document.getElementById('field-desc').value.trim()
@@ -845,25 +854,28 @@ function saveRecord() {
 
   if (!title) return alert('Digite um título.')
 
+  const { data: { user } } = await sb.auth.getUser()
+  if (!user) return alert('Usuário não autenticado.')
+
   if (editingId) {
-    const idx = records.findIndex(r => r.id === editingId)
-    if (idx !== -1) records[idx] = { ...records[idx], title, category, desc, status }
+    const { error } = await sb.from('registros').update({ title, category, desc, status }).eq('id', editingId).eq('user_id', user.id)
+    if (error) return alert('Erro ao editar: ' + error.message)
   } else {
-    records.push({ id: Date.now().toString(), title, category, desc, status, created: new Date().toISOString() })
+    const { error } = await sb.from('registros').insert({ title, category, desc, status, user_id: user.id })
+    if (error) return alert('Erro ao salvar: ' + error.message)
   }
 
-  saveRecords()
-  renderTable()
   closeModal()
+  loadRecords()
 }
 
 function editRecord(id) { openModal(id) }
 
-function deleteRecord(id) {
+async function deleteRecord(id) {
   if (!confirm('Excluir este registro?')) return
-  records = records.filter(r => r.id !== id)
-  saveRecords()
-  renderTable()
+  const { error } = await sb.from('registros').delete().eq('id', id)
+  if (error) return alert('Erro ao excluir: ' + error.message)
+  loadRecords()
 }
 
 // Fechar modal ao clicar fora
