@@ -475,6 +475,28 @@ textarea::placeholder { color: var(--text-muted); }
     </div>
 
   </div>
+
+    <!-- VERIFICACAO DE LOGIN -->
+    <div class="page" id="page-verify-login">
+      <h1>Confirme seu acesso</h1>
+      <p class="subtitle">Enviamos um código para <strong id="verify-email-display"></strong></p>
+      <label>Código de verificação</label>
+      <div class="otp-group" id="verify-otp-inputs">
+        <input type="text" maxlength="1" inputmode="numeric" />
+        <input type="text" maxlength="1" inputmode="numeric" />
+        <input type="text" maxlength="1" inputmode="numeric" />
+        <input type="text" maxlength="1" inputmode="numeric" />
+        <input type="text" maxlength="1" inputmode="numeric" />
+        <input type="text" maxlength="1" inputmode="numeric" />
+      </div>
+      <button class="btn btn-primary" id="btn-verify-login" onclick="verifyLoginOTP()" disabled>Confirmar e entrar</button>
+      <div class="timer" id="verify-timer">Reenviar em <span id="verify-countdown">60</span>s</div>
+      <div style="text-align:center; margin-top:8px;">
+        <button class="link-btn" id="verify-resend" style="display:none;" onclick="resendLoginOTP()">Reenviar código</button>
+      </div>
+      <button class="btn btn-ghost" onclick="showPage('page-login')" style="margin-top:10px;">← Voltar</button>
+      <div class="msg" id="msg-verify-login"></div>
+    </div>
   <p class="footer-note">Protegido por Supabase Auth</p>
 </div>
 
@@ -558,11 +580,11 @@ const { createClient } = supabase
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 let currentOTPEmail = ''
+let pendingLoginEmail = ''
 let timerInterval = null
+let verifyTimerInterval = null
 let editingId = null
-
-// Armazenamento local como fallback (sem banco necessário para CRUD)
-let records = JSON.parse(localStorage.getItem('crud_records') || '[]')
+let records = []
 
 // ---- NAVEGAÇÃO ----
 function showPage(id) {
@@ -607,13 +629,87 @@ async function loginPassword() {
   clearMsg('msg-login')
   const loginBtn = document.querySelector('#page-login .btn-primary')
   loginBtn.disabled = true
-  loginBtn.innerHTML = '<span class="spinner"></span> Entrando…'
+  loginBtn.innerHTML = '<span class="spinner"></span> Verificando…'
 
+  // Verifica a senha primeiro
   const { error } = await sb.auth.signInWithPassword({ email, password: pass })
   loginBtn.disabled = false
   loginBtn.textContent = 'Entrar'
   if (error) return showMsg('msg-login', 'Email ou senha incorretos.', 'error')
+
+  // Senha correta — faz logout temporário e envia OTP
+  await sb.auth.signOut()
+  pendingLoginEmail = email
+
+  const { error: otpError } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false } })
+  if (otpError) {
+    // Se falhar OTP, entra direto
+    const { error: reloginError } = await sb.auth.signInWithPassword({ email, password: pass })
+    if (!reloginError) openDashboard()
+    return
+  }
+
+  document.getElementById('verify-email-display').textContent = email
+  document.querySelectorAll('#verify-otp-inputs input').forEach(i => i.value = '')
+  document.getElementById('btn-verify-login').disabled = true
+  showPage('page-verify-login')
+  document.querySelector('#verify-otp-inputs input').focus()
+  startVerifyTimer()
+}
+
+async function verifyLoginOTP() {
+  const code = Array.from(document.querySelectorAll('#verify-otp-inputs input')).map(i => i.value).join('')
+  const btn = document.getElementById('btn-verify-login')
+  btn.disabled = true
+  btn.innerHTML = '<span class="spinner"></span> Verificando…'
+  clearMsg('msg-verify-login')
+
+  const { error } = await sb.auth.verifyOtp({ email: pendingLoginEmail, token: code, type: 'email' })
+  btn.disabled = false
+  btn.textContent = 'Confirmar e entrar'
+
+  if (error) {
+    showMsg('msg-verify-login', 'Código inválido ou expirado.', 'error')
+    document.querySelectorAll('#verify-otp-inputs input').forEach(i => i.value = '')
+    document.querySelector('#verify-otp-inputs input').focus()
+    return
+  }
+
+  clearInterval(verifyTimerInterval)
   openDashboard()
+}
+
+async function resendLoginOTP() {
+  document.getElementById('verify-resend').style.display = 'none'
+  const { error } = await sb.auth.signInWithOtp({ email: pendingLoginEmail, options: { shouldCreateUser: false } })
+  if (error) {
+    showMsg('msg-verify-login', 'Erro ao reenviar: ' + error.message, 'error')
+  } else {
+    showMsg('msg-verify-login', 'Novo código enviado!', 'success')
+    document.querySelectorAll('#verify-otp-inputs input').forEach(i => i.value = '')
+    document.querySelector('#verify-otp-inputs input').focus()
+    startVerifyTimer()
+    setTimeout(() => clearMsg('msg-verify-login'), 3000)
+  }
+}
+
+function startVerifyTimer() {
+  clearInterval(verifyTimerInterval)
+  let sec = 60
+  const timerEl = document.getElementById('verify-timer')
+  const countEl = document.getElementById('verify-countdown')
+  const resendBtn = document.getElementById('verify-resend')
+  timerEl.style.display = 'block'
+  resendBtn.style.display = 'none'
+  countEl.textContent = sec
+  verifyTimerInterval = setInterval(() => {
+    sec--; countEl.textContent = sec
+    if (sec <= 0) {
+      clearInterval(verifyTimerInterval)
+      timerEl.style.display = 'none'
+      resendBtn.style.display = 'inline'
+    }
+  }, 1000)
 }
 
 async function loginGoogle() {
@@ -858,10 +954,10 @@ async function saveRecord() {
   if (!user) return alert('Usuário não autenticado.')
 
   if (editingId) {
-    const { error } = await sb.from('registros').update({ title, category, desc, status }).eq('id', editingId).eq('user_id', user.id)
+    const { error } = await sb.from('Registros').update({ title, category, desc, status }).eq('id', editingId).eq('user_id', user.id)
     if (error) return alert('Erro ao editar: ' + error.message)
   } else {
-    const { error } = await sb.from('registros').insert({ title, category, desc, status, user_id: user.id })
+    const { error } = await sb.from('Registros').insert({ title, category, desc, status, user_id: user.id })
     if (error) return alert('Erro ao salvar: ' + error.message)
   }
 
@@ -873,10 +969,33 @@ function editRecord(id) { openModal(id) }
 
 async function deleteRecord(id) {
   if (!confirm('Excluir este registro?')) return
-  const { error } = await sb.from('registros').delete().eq('id', id)
+  const { error } = await sb.from('Registros').delete().eq('id', id)
   if (error) return alert('Erro ao excluir: ' + error.message)
   loadRecords()
 }
+
+// Verify OTP inputs navigation
+const verifyOtpInputs = document.querySelectorAll('#verify-otp-inputs input')
+verifyOtpInputs.forEach((inp, i) => {
+  inp.addEventListener('input', e => {
+    e.target.value = e.target.value.replace(/\D/g, '')
+    if (e.target.value && i < verifyOtpInputs.length - 1) verifyOtpInputs[i+1].focus()
+    const filled = Array.from(verifyOtpInputs).every(x => x.value)
+    document.getElementById('btn-verify-login').disabled = !filled
+  })
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Backspace' && !e.target.value && i > 0) verifyOtpInputs[i-1].focus()
+  })
+  inp.addEventListener('paste', e => {
+    e.preventDefault()
+    const pasted = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '')
+    if (pasted.length === 6) {
+      verifyOtpInputs.forEach((inp2, j) => inp2.value = pasted[j] || '')
+      verifyOtpInputs[5].focus()
+      document.getElementById('btn-verify-login').disabled = false
+    }
+  })
+})
 
 // Fechar modal ao clicar fora
 document.getElementById('modal-overlay').addEventListener('click', e => {
