@@ -629,15 +629,19 @@ async function loginPassword() {
   loginBtn.disabled = true
   loginBtn.innerHTML = '<span class="spinner"></span> Verificando…'
 
-  // Verifica a senha primeiro
+  // Bloqueia o dashboard antes de verificar a senha
+  pendingLoginEmail = email
+
   const { error } = await sb.auth.signInWithPassword({ email, password: pass })
   loginBtn.disabled = false
   loginBtn.textContent = 'Entrar'
-  if (error) return showMsg('msg-login', 'Email ou senha incorretos.', 'error')
+  if (error) {
+    pendingLoginEmail = ''
+    return showMsg('msg-login', 'Email ou senha incorretos.', 'error')
+  }
 
   // Senha correta — faz logout temporário e envia OTP
   await sb.auth.signOut()
-  pendingLoginEmail = email
 
   const { error: otpError } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false } })
   if (otpError) {
@@ -674,7 +678,6 @@ async function verifyLoginOTP() {
   }
 
   clearInterval(verifyTimerInterval)
-  pendingLoginEmail = ''
   openDashboard()
 }
 
@@ -1007,7 +1010,6 @@ sb.auth.getSession().then(({ data }) => {
 })
 
 sb.auth.onAuthStateChange((event, session) => {
-  // Só abre o dashboard se não estiver aguardando verificação OTP
   if (event === 'SIGNED_IN' && session && !pendingLoginEmail) openDashboard()
 })
 </script>
