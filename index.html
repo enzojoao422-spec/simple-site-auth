@@ -608,7 +608,7 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 // ============================================================
 
 const { createClient } = supabase
-const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { detectSessionInUrl: true, flowType: "pkce" } })
 
 let currentOTPEmail = ''
 let pendingLoginEmail = ''
@@ -1155,27 +1155,22 @@ document.getElementById('modal-overlay').addEventListener('click', e => {
 })
 
 // ---- INIT ----
-sb.auth.getSession().then(({ data }) => {
-  if (data.session) {
-    const isGoogle = data.session.user?.app_metadata?.provider === 'google'
-    if (isGoogle || !pendingLoginEmail) openDashboard()
-  }
-})
-
 sb.auth.onAuthStateChange((event, session) => {
-  // Google OAuth pode retornar SIGNED_IN, TOKEN_REFRESHED ou INITIAL_SESSION após redirect
-  const googleEvents = ['SIGNED_IN', 'TOKEN_REFRESHED', 'INITIAL_SESSION']
-  if (googleEvents.includes(event) && session) {
-    const isGoogle = session.user?.app_metadata?.provider === 'google'
-    if (isGoogle) {
-      pendingLoginEmail = ''
-      openDashboard()
-      return
-    }
-    // Login por senha/OTP: só abre se não estiver aguardando OTP
-    if (event === 'SIGNED_IN' && !pendingLoginEmail) {
-      openDashboard()
-    }
+  console.log('AUTH EVENT:', event, session?.user?.app_metadata?.provider)
+  if (!session) return
+
+  const isGoogle = session.user?.app_metadata?.provider === 'google'
+
+  if (isGoogle) {
+    // Google OAuth: sempre abre dashboard independente do evento
+    pendingLoginEmail = ''
+    openDashboard()
+    return
+  }
+
+  // Login por senha/OTP: só abre no SIGNED_IN e sem OTP pendente
+  if (event === 'SIGNED_IN' && !pendingLoginEmail) {
+    openDashboard()
   }
 })
 </script>
