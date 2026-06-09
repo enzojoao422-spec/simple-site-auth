@@ -421,12 +421,18 @@ textarea::placeholder { color: var(--text-muted); }
     <!-- REDEFINIR SENHA -->
     <div class="page" id="page-reset">
       <h1>Redefinir senha</h1>
-      <p class="subtitle">Digite seu email e enviaremos um link para redefinir sua senha.</p>
+      <p class="subtitle">Digite seu email e a nova senha desejada.</p>
 
       <label>Email</label>
       <input type="email" id="reset-email" placeholder="voce@exemplo.com" />
 
-      <button class="btn btn-primary" onclick="resetPassword()">Enviar link</button>
+      <label>Nova senha</label>
+      <input type="password" id="reset-new-pass" placeholder="Mínimo 6 caracteres" />
+
+      <label>Confirmar nova senha</label>
+      <input type="password" id="reset-confirm-pass" placeholder="Repita a nova senha" />
+
+      <button class="btn btn-primary" onclick="resetPassword()">Redefinir senha</button>
       <button class="btn btn-ghost" onclick="showPage('page-login')">← Voltar para login</button>
 
       <div class="msg" id="msg-reset"></div>
@@ -748,19 +754,59 @@ async function register() {
 
 async function resetPassword() {
   const email = document.getElementById('reset-email').value.trim()
+  const newPass = document.getElementById('reset-new-pass').value
+  const confirmPass = document.getElementById('reset-confirm-pass').value
+
   if (!email) return showMsg('msg-reset', 'Digite seu email.', 'error')
+  if (!newPass) return showMsg('msg-reset', 'Digite a nova senha.', 'error')
+  if (newPass.length < 6) return showMsg('msg-reset', 'A senha deve ter no mínimo 6 caracteres.', 'error')
+  if (newPass !== confirmPass) return showMsg('msg-reset', 'As senhas não coincidem.', 'error')
 
   clearMsg('msg-reset')
   const btn = document.querySelector('#page-reset .btn-primary')
-  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Enviando…'
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Redefinindo…'
+
+  // Faz login temporário para atualizar a senha
+  const { error: loginError } = await sb.auth.signInWithPassword({ email, password: newPass })
+  
+  // Se já tem essa senha, só confirma
+  if (!loginError) {
+    btn.disabled = false; btn.textContent = 'Redefinir senha'
+    showMsg('msg-reset', 'Senha já está ativa! Faça login normalmente.', 'success')
+    return
+  }
+
+  // Envia o link de redefinição com a nova senha salva temporariamente
+  sessionStorage.setItem('pending_new_pass', newPass)
+  sessionStorage.setItem('pending_reset_email', email)
 
   const { error } = await sb.auth.resetPasswordForEmail(email, {
     redirectTo: window.location.href + '?reset=true'
   })
 
-  btn.disabled = false; btn.textContent = 'Enviar link'
+  btn.disabled = false; btn.textContent = 'Redefinir senha'
   if (error) return showMsg('msg-reset', error.message, 'error')
-  showMsg('msg-reset', 'Link enviado! Verifique seu email.', 'success')
+  showMsg('msg-reset', 'Verifique seu email e clique no link para confirmar a nova senha.', 'success')
+}
+
+// Aplicar nova senha após clicar no link do email
+async function applyNewPassword() {
+  const newPass = sessionStorage.getItem('pending_new_pass')
+  if (!newPass) return
+
+  const { error } = await sb.auth.updateUser({ password: newPass })
+  if (!error) {
+    sessionStorage.removeItem('pending_new_pass')
+    sessionStorage.removeItem('pending_reset_email')
+    showMsg('msg-reset', 'Senha redefinida com sucesso! Faça login.', 'success')
+    await sb.auth.signOut()
+    showPage('page-login')
+  }
+}
+
+// Verificar se voltou do link de redefinição
+if (window.location.hash.includes('type=recovery')) {
+  setTimeout(applyNewPassword, 500)
 }
 
 async function sendOTP(resend = false) {
