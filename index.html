@@ -419,6 +419,7 @@ textarea::placeholder { color: var(--text-muted); }
     </div>
 
     <!-- REDEFINIR SENHA -->
+    <!-- RESET: digitar email e nova senha -->
     <div class="page" id="page-reset">
       <h1>Redefinir senha</h1>
       <p class="subtitle">Digite seu email e a nova senha desejada.</p>
@@ -432,10 +433,36 @@ textarea::placeholder { color: var(--text-muted); }
       <label>Confirmar nova senha</label>
       <input type="password" id="reset-confirm-pass" placeholder="Repita a nova senha" />
 
-      <button class="btn btn-primary" onclick="resetPassword()">Redefinir senha</button>
+      <button class="btn btn-primary" id="btn-reset" onclick="resetPassword()">Enviar código</button>
       <button class="btn btn-ghost" onclick="showPage('page-login')">← Voltar para login</button>
 
       <div class="msg" id="msg-reset"></div>
+    </div>
+
+    <!-- RESET: digitar código OTP -->
+    <div class="page" id="page-reset-otp">
+      <h1>Confirme o código</h1>
+      <p class="subtitle">Enviamos um código para <strong id="reset-email-display"></strong></p>
+
+      <label>Código de verificação</label>
+      <div class="otp-group" id="reset-otp-inputs">
+        <input type="text" maxlength="1" inputmode="numeric" />
+        <input type="text" maxlength="1" inputmode="numeric" />
+        <input type="text" maxlength="1" inputmode="numeric" />
+        <input type="text" maxlength="1" inputmode="numeric" />
+        <input type="text" maxlength="1" inputmode="numeric" />
+        <input type="text" maxlength="1" inputmode="numeric" />
+      </div>
+
+      <button class="btn btn-primary" id="btn-reset-verify" onclick="verifyResetOTP()" disabled>Confirmar e salvar senha</button>
+
+      <div class="timer" id="reset-timer">Reenviar em <span id="reset-countdown">60</span>s</div>
+      <div style="text-align:center; margin-top:8px;">
+        <button class="link-btn" id="reset-resend" style="display:none;" onclick="resetPassword(true)">Reenviar código</button>
+      </div>
+
+      <button class="btn btn-ghost" onclick="showPage('page-reset')" style="margin-top:10px;">← Voltar</button>
+      <div class="msg" id="msg-reset-otp"></div>
     </div>
 
     <!-- OTP EMAIL -->
@@ -752,61 +779,109 @@ async function register() {
   showMsg('msg-register', 'Conta criada! Verifique seu email para confirmar.', 'success')
 }
 
-async function resetPassword() {
-  const email = document.getElementById('reset-email').value.trim()
-  const newPass = document.getElementById('reset-new-pass').value
-  const confirmPass = document.getElementById('reset-confirm-pass').value
+let pendingResetEmail = ''
+let pendingNewPass = ''
+let resetTimerInterval = null
 
-  if (!email) return showMsg('msg-reset', 'Digite seu email.', 'error')
-  if (!newPass) return showMsg('msg-reset', 'Digite a nova senha.', 'error')
-  if (newPass.length < 6) return showMsg('msg-reset', 'A senha deve ter no mínimo 6 caracteres.', 'error')
-  if (newPass !== confirmPass) return showMsg('msg-reset', 'As senhas não coincidem.', 'error')
+async function resetPassword(resend = false) {
+  const email = resend ? pendingResetEmail : document.getElementById('reset-email').value.trim()
+  const newPass = resend ? pendingNewPass : document.getElementById('reset-new-pass').value
+  const confirmPass = resend ? pendingNewPass : document.getElementById('reset-confirm-pass').value
+
+  if (!resend) {
+    if (!email) return showMsg('msg-reset', 'Digite seu email.', 'error')
+    if (!newPass) return showMsg('msg-reset', 'Digite a nova senha.', 'error')
+    if (newPass.length < 6) return showMsg('msg-reset', 'A senha deve ter no mínimo 6 caracteres.', 'error')
+    if (newPass !== confirmPass) return showMsg('msg-reset', 'As senhas não coincidem.', 'error')
+  }
 
   clearMsg('msg-reset')
-  const btn = document.querySelector('#page-reset .btn-primary')
-  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Redefinindo…'
+  if (!resend) {
+    const btn = document.getElementById('btn-reset')
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Enviando…'
+  }
 
-  // Faz login temporário para atualizar a senha
-  const { error: loginError } = await sb.auth.signInWithPassword({ email, password: newPass })
-  
-  // Se já tem essa senha, só confirma
-  if (!loginError) {
-    btn.disabled = false; btn.textContent = 'Redefinir senha'
-    showMsg('msg-reset', 'Senha já está ativa! Faça login normalmente.', 'success')
+  // Envia OTP para o email
+  const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false } })
+
+  if (!resend) {
+    const btn = document.getElementById('btn-reset')
+    btn.disabled = false; btn.textContent = 'Enviar código'
+  }
+
+  if (error) {
+    if (!resend) showMsg('msg-reset', 'Email não encontrado.', 'error')
+    else showMsg('msg-reset-otp', 'Erro ao reenviar: ' + error.message, 'error')
     return
   }
 
-  // Envia o link de redefinição com a nova senha salva temporariamente
-  sessionStorage.setItem('pending_new_pass', newPass)
-  sessionStorage.setItem('pending_reset_email', email)
+  pendingResetEmail = email
+  pendingNewPass = newPass
 
-  const { error } = await sb.auth.resetPasswordForEmail(email, {
-    redirectTo: window.location.href + '?reset=true'
-  })
-
-  btn.disabled = false; btn.textContent = 'Redefinir senha'
-  if (error) return showMsg('msg-reset', error.message, 'error')
-  showMsg('msg-reset', 'Verifique seu email e clique no link para confirmar a nova senha.', 'success')
-}
-
-// Aplicar nova senha após clicar no link do email
-async function applyNewPassword() {
-  const newPass = sessionStorage.getItem('pending_new_pass')
-  if (!newPass) return
-
-  const { error } = await sb.auth.updateUser({ password: newPass })
-  if (!error) {
-    sessionStorage.removeItem('pending_new_pass')
-    sessionStorage.removeItem('pending_reset_email')
-    showMsg('msg-reset', 'Senha redefinida com sucesso! Faça login.', 'success')
-    await sb.auth.signOut()
-    showPage('page-login')
+  if (!resend) {
+    document.getElementById('reset-email-display').textContent = email
+    document.querySelectorAll('#reset-otp-inputs input').forEach(i => i.value = '')
+    document.getElementById('btn-reset-verify').disabled = true
+    showPage('page-reset-otp')
+    document.querySelector('#reset-otp-inputs input').focus()
+  } else {
+    showMsg('msg-reset-otp', 'Novo código enviado!', 'success')
+    setTimeout(() => clearMsg('msg-reset-otp'), 3000)
   }
+  startResetTimer()
 }
 
-// Verificar se voltou do link de redefinição
-if (window.location.hash.includes('type=recovery')) {
-  setTimeout(applyNewPassword, 500)
+async function verifyResetOTP() {
+  const code = Array.from(document.querySelectorAll('#reset-otp-inputs input')).map(i => i.value).join('')
+  const btn = document.getElementById('btn-reset-verify')
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Salvando…'
+  clearMsg('msg-reset-otp')
+
+  // Verifica o OTP
+  const { error: otpError } = await sb.auth.verifyOtp({ email: pendingResetEmail, token: code, type: 'email' })
+
+  if (otpError) {
+    btn.disabled = false; btn.textContent = 'Confirmar e salvar senha'
+    showMsg('msg-reset-otp', 'Código inválido ou expirado.', 'error')
+    document.querySelectorAll('#reset-otp-inputs input').forEach(i => i.value = '')
+    document.querySelector('#reset-otp-inputs input').focus()
+    return
+  }
+
+  // OTP correto — atualiza a senha
+  const { error: updateError } = await sb.auth.updateUser({ password: pendingNewPass })
+  btn.disabled = false; btn.textContent = 'Confirmar e salvar senha'
+
+  if (updateError) {
+    showMsg('msg-reset-otp', 'Erro ao salvar senha: ' + updateError.message, 'error')
+    return
+  }
+
+  clearInterval(resetTimerInterval)
+  pendingResetEmail = ''
+  pendingNewPass = ''
+  await sb.auth.signOut()
+  showPage('page-login')
+  showMsg('msg-login', 'Senha redefinida com sucesso! Faça login.', 'success')
+}
+
+function startResetTimer() {
+  clearInterval(resetTimerInterval)
+  let sec = 60
+  const timerEl = document.getElementById('reset-timer')
+  const countEl = document.getElementById('reset-countdown')
+  const resendBtn = document.getElementById('reset-resend')
+  timerEl.style.display = 'block'
+  resendBtn.style.display = 'none'
+  countEl.textContent = sec
+  resetTimerInterval = setInterval(() => {
+    sec--; countEl.textContent = sec
+    if (sec <= 0) {
+      clearInterval(resetTimerInterval)
+      timerEl.style.display = 'none'
+      resendBtn.style.display = 'inline'
+    }
+  }, 1000)
 }
 
 async function sendOTP(resend = false) {
@@ -1041,6 +1116,29 @@ verifyOtpInputs.forEach((inp, i) => {
       verifyOtpInputs.forEach((inp2, j) => inp2.value = pasted[j] || '')
       verifyOtpInputs[5].focus()
       document.getElementById('btn-verify-login').disabled = false
+    }
+  })
+})
+
+// Reset OTP inputs navigation
+const resetOtpInputs = document.querySelectorAll('#reset-otp-inputs input')
+resetOtpInputs.forEach((inp, i) => {
+  inp.addEventListener('input', e => {
+    e.target.value = e.target.value.replace(/\D/g, '')
+    if (e.target.value && i < resetOtpInputs.length - 1) resetOtpInputs[i+1].focus()
+    const filled = Array.from(resetOtpInputs).every(x => x.value)
+    document.getElementById('btn-reset-verify').disabled = !filled
+  })
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Backspace' && !e.target.value && i > 0) resetOtpInputs[i-1].focus()
+  })
+  inp.addEventListener('paste', e => {
+    e.preventDefault()
+    const pasted = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '')
+    if (pasted.length === 6) {
+      resetOtpInputs.forEach((inp2, j) => inp2.value = pasted[j] || '')
+      resetOtpInputs[5].focus()
+      document.getElementById('btn-reset-verify').disabled = false
     }
   })
 })
