@@ -1156,15 +1156,24 @@ document.getElementById('modal-overlay').addEventListener('click', e => {
 
 // ---- INIT ----
 sb.auth.getSession().then(({ data }) => {
-  if (data.session && !pendingLoginEmail) openDashboard()
+  if (data.session) {
+    const isGoogle = data.session.user?.app_metadata?.provider === 'google'
+    if (isGoogle || !pendingLoginEmail) openDashboard()
+  }
 })
 
 sb.auth.onAuthStateChange((event, session) => {
-  // Google OAuth retorna como SIGNED_IN após redirect — abre dashboard direto
-  if (event === 'SIGNED_IN' && session) {
+  // Google OAuth pode retornar SIGNED_IN, TOKEN_REFRESHED ou INITIAL_SESSION após redirect
+  const googleEvents = ['SIGNED_IN', 'TOKEN_REFRESHED', 'INITIAL_SESSION']
+  if (googleEvents.includes(event) && session) {
     const isGoogle = session.user?.app_metadata?.provider === 'google'
-    if (isGoogle || !pendingLoginEmail) {
+    if (isGoogle) {
       pendingLoginEmail = ''
+      openDashboard()
+      return
+    }
+    // Login por senha/OTP: só abre se não estiver aguardando OTP
+    if (event === 'SIGNED_IN' && !pendingLoginEmail) {
       openDashboard()
     }
   }
