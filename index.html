@@ -750,7 +750,13 @@ function startVerifyTimer() {
 async function loginGoogle() {
   const { error } = await sb.auth.signInWithOAuth({
     provider: 'google',
-    options: { redirectTo: window.location.href }
+    options: {
+      redirectTo: window.location.href,
+      queryParams: {
+        access_type: 'offline',
+        prompt: 'select_account'
+      }
+    }
   })
   if (error) showMsg('msg-login', 'Erro ao conectar com Google: ' + error.message, 'error')
 }
