@@ -608,7 +608,7 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 // ============================================================
 
 const { createClient } = supabase
-const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { detectSessionInUrl: true, flowType: "pkce" } })
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 let currentOTPEmail = ''
 let pendingLoginEmail = ''
@@ -656,6 +656,7 @@ async function loginPassword() {
   const email = document.getElementById('login-email').value.trim()
   const pass = document.getElementById('login-pass').value
   if (!email || !pass) return showMsg('msg-login', 'Preencha email e senha.', 'error')
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showMsg('msg-login', 'Email inválido.', 'error')
 
   clearMsg('msg-login')
   const loginBtn = document.querySelector('#page-login .btn-primary')
@@ -678,9 +679,8 @@ async function loginPassword() {
 
   const { error: otpError } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false } })
   if (otpError) {
-    // Se falhar OTP, entra direto
-    const { error: reloginError } = await sb.auth.signInWithPassword({ email, password: pass })
-    if (!reloginError) openDashboard()
+    pendingLoginEmail = ''
+    showMsg('msg-login', 'Erro ao enviar código: ' + otpError.message, 'error')
     return
   }
 
@@ -767,7 +767,8 @@ async function register() {
   const pass = document.getElementById('reg-pass').value
   const pass2 = document.getElementById('reg-pass2').value
 
-  if (!name || !email || !pass) return showMsg('msg-register', 'Preencha todos os campos.', 'error')
+  if (!name || !email || !pass || !pass2) return showMsg('msg-register', 'Preencha todos os campos.', 'error')
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showMsg('msg-register', 'Email inválido.', 'error')
   if (pass !== pass2) return showMsg('msg-register', 'As senhas não coincidem.', 'error')
   if (pass.length < 6) return showMsg('msg-register', 'A senha deve ter no mínimo 6 caracteres.', 'error')
 
@@ -782,7 +783,8 @@ async function register() {
 
   btn.disabled = false; btn.textContent = 'Criar conta'
   if (error) return showMsg('msg-register', error.message, 'error')
-  showMsg('msg-register', 'Conta criada! Verifique seu email para confirmar.', 'success')
+  showMsg('msg-register', 'Conta criada com sucesso! Faça login para continuar.', 'success')
+  setTimeout(() => showPage('page-login'), 2000)
 }
 
 let pendingResetEmail = ''
@@ -1155,22 +1157,24 @@ document.getElementById('modal-overlay').addEventListener('click', e => {
 })
 
 // ---- INIT ----
+sb.auth.getSession().then(({ data }) => {
+  if (data.session && !pendingLoginEmail) openDashboard()
+})
+
 sb.auth.onAuthStateChange((event, session) => {
-  console.log('AUTH EVENT:', event, session?.user?.app_metadata?.provider)
-  if (!session) return
-
-  const isGoogle = session.user?.app_metadata?.provider === 'google'
-
-  if (isGoogle) {
-    // Google OAuth: sempre abre dashboard independente do evento
-    pendingLoginEmail = ''
-    openDashboard()
-    return
+  if (event === 'SIGNED_IN' && session) {
+    const provider = session.user?.app_metadata?.provider
+    const isGoogle = provider === 'google'
+    // Google entra direto, email+senha só após OTP
+    if (isGoogle) {
+      pendingLoginEmail = ''
+      openDashboard()
+    } else if (!pendingLoginEmail) {
+      openDashboard()
+    }
   }
-
-  // Login por senha/OTP: só abre no SIGNED_IN e sem OTP pendente
-  if (event === 'SIGNED_IN' && !pendingLoginEmail) {
-    openDashboard()
+  if (event === 'SIGNED_OUT') {
+    pendingLoginEmail = ''
   }
 })
 </script>
