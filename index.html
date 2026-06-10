@@ -505,7 +505,6 @@ textarea::placeholder { color: var(--text-muted); }
       <div class="msg" id="msg-otp-code"></div>
     </div>
 
-  </div>
 
     <!-- VERIFICACAO DE LOGIN -->
     <div class="page" id="page-verify-login">
@@ -527,6 +526,7 @@ textarea::placeholder { color: var(--text-muted); }
       </div>
       <button class="btn btn-ghost" onclick="showPage('page-login')" style="margin-top:10px;">← Voltar</button>
       <div class="msg" id="msg-verify-login"></div>
+    </div>
     </div>
   <p class="footer-note">Protegido por Supabase Auth</p>
 </div>
@@ -608,7 +608,7 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 // ============================================================
 
 const { createClient } = supabase
-const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { detectSessionInUrl: true } })
 
 let currentOTPEmail = ''
 let pendingLoginEmail = ''
@@ -846,7 +846,7 @@ async function verifyResetOTP() {
   clearMsg('msg-reset-otp')
 
   // Verifica o OTP
-  const { error: otpError } = await sb.auth.verifyOtp({ email: pendingResetEmail, token: code, type: 'email' })
+  const { error: otpError } = await sb.auth.verifyOtp({ email: pendingResetEmail, token: code, type: 'magiclink' })
 
   if (otpError) {
     btn.disabled = false; btn.textContent = 'Confirmar e salvar senha'
@@ -1157,24 +1157,26 @@ document.getElementById('modal-overlay').addEventListener('click', e => {
 })
 
 // ---- INIT ----
-sb.auth.getSession().then(({ data }) => {
-  if (data.session && !pendingLoginEmail) openDashboard()
-})
-
 sb.auth.onAuthStateChange((event, session) => {
-  if (event === 'SIGNED_IN' && session) {
-    const provider = session.user?.app_metadata?.provider
-    const isGoogle = provider === 'google'
-    // Google entra direto, email+senha só após OTP
-    if (isGoogle) {
-      pendingLoginEmail = ''
-      openDashboard()
-    } else if (!pendingLoginEmail) {
-      openDashboard()
-    }
-  }
   if (event === 'SIGNED_OUT') {
     pendingLoginEmail = ''
+    return
+  }
+
+  if (!session) return
+
+  const isGoogle = session.user?.app_metadata?.provider === 'google'
+
+  if (isGoogle) {
+    // Google OAuth: qualquer evento com sessão válida abre o dashboard
+    pendingLoginEmail = ''
+    openDashboard()
+    return
+  }
+
+  // Login por senha+OTP: só abre quando OTP foi verificado (pendingLoginEmail limpo)
+  if (event === 'SIGNED_IN' && !pendingLoginEmail) {
+    openDashboard()
   }
 })
 </script>
