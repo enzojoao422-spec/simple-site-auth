@@ -699,7 +699,7 @@ async function verifyLoginOTP() {
   btn.innerHTML = '<span class="spinner"></span> Verificando…'
   clearMsg('msg-verify-login')
 
-  const { error } = await sb.auth.verifyOtp({ email: pendingLoginEmail, token: code, type: 'email' })
+  const { error } = await sb.auth.verifyOtp({ email: pendingLoginEmail, token: code, type: 'magiclink' })
   btn.disabled = false
   btn.textContent = 'Confirmar e entrar'
 
