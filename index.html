@@ -608,7 +608,7 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 // ============================================================
 
 const { createClient } = supabase
-const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { detectSessionInUrl: true } })
 
 let currentOTPEmail = ''
 let pendingLoginEmail = ''
@@ -661,37 +661,17 @@ async function loginPassword() {
   clearMsg('msg-login')
   const loginBtn = document.querySelector('#page-login .btn-primary')
   loginBtn.disabled = true
-  loginBtn.innerHTML = '<span class="spinner"></span> Verificando…'
-
-  // Bloqueia o dashboard antes de verificar a senha
-  pendingLoginEmail = email
+  loginBtn.innerHTML = '<span class="spinner"></span> Entrando…'
 
   const { error } = await sb.auth.signInWithPassword({ email, password: pass })
   loginBtn.disabled = false
   loginBtn.textContent = 'Entrar'
+
   if (error) {
-    pendingLoginEmail = ''
     return showMsg('msg-login', 'Email ou senha incorretos.', 'error')
   }
 
-  // Senha correta — faz logout e envia OTP de verificação
-  await sb.auth.signOut()
-  // Pequena espera para garantir que o signOut foi processado
-  await new Promise(r => setTimeout(r, 300))
-
-  const { error: otpError } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false } })
-  if (otpError) {
-    pendingLoginEmail = ''
-    showMsg('msg-login', 'Erro ao enviar código: ' + (otpError.message || JSON.stringify(otpError)), 'error')
-    return
-  }
-
-  document.getElementById('verify-email-display').textContent = email
-  document.querySelectorAll('#verify-otp-inputs input').forEach(i => i.value = '')
-  document.getElementById('btn-verify-login').disabled = true
-  showPage('page-verify-login')
-  document.querySelector('#verify-otp-inputs input').focus()
-  startVerifyTimer()
+  openDashboard()
 }
 
 async function verifyLoginOTP() {
@@ -1159,24 +1139,11 @@ document.getElementById('modal-overlay').addEventListener('click', e => {
 })
 
 // ---- INIT ----
-sb.auth.getSession().then(({ data }) => {
-  if (data.session && !pendingLoginEmail) openDashboard()
-})
-
 sb.auth.onAuthStateChange((event, session) => {
-  if (event === 'SIGNED_IN' && session) {
-    const provider = session.user?.app_metadata?.provider
-    const isGoogle = provider === 'google'
-    // Google entra direto, email+senha só após OTP
-    if (isGoogle) {
-      pendingLoginEmail = ''
-      openDashboard()
-    } else if (!pendingLoginEmail) {
-      openDashboard()
-    }
-  }
-  if (event === 'SIGNED_OUT') {
-    pendingLoginEmail = ''
+  if (event === 'SIGNED_OUT') return
+  if (!session) return
+  if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
+    openDashboard()
   }
 })
 </script>
