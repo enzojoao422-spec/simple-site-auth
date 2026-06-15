@@ -661,17 +661,37 @@ async function loginPassword() {
   clearMsg('msg-login')
   const loginBtn = document.querySelector('#page-login .btn-primary')
   loginBtn.disabled = true
-  loginBtn.innerHTML = '<span class="spinner"></span> Entrando…'
+  loginBtn.innerHTML = '<span class="spinner"></span> Verificando…'
 
+  // 1. Verifica senha
   const { error } = await sb.auth.signInWithPassword({ email, password: pass })
-  loginBtn.disabled = false
-  loginBtn.textContent = 'Entrar'
-
   if (error) {
+    loginBtn.disabled = false
+    loginBtn.textContent = 'Entrar'
     return showMsg('msg-login', 'Email ou senha incorretos.', 'error')
   }
 
-  openDashboard()
+  // 2. Faz signOut e aguarda antes de enviar OTP
+  await sb.auth.signOut()
+  await new Promise(r => setTimeout(r, 500))
+
+  // 3. Envia OTP sem opções extras
+  const { error: otpError } = await sb.auth.signInWithOtp({ email })
+  loginBtn.disabled = false
+  loginBtn.textContent = 'Entrar'
+
+  if (otpError) {
+    return showMsg('msg-login', 'Erro ao enviar código: ' + otpError.message, 'error')
+  }
+
+  // 4. Vai para tela de verificação
+  pendingLoginEmail = email
+  document.getElementById('verify-email-display').textContent = email
+  document.querySelectorAll('#verify-otp-inputs input').forEach(i => i.value = '')
+  document.getElementById('btn-verify-login').disabled = true
+  showPage('page-verify-login')
+  document.querySelector('#verify-otp-inputs input').focus()
+  startVerifyTimer()
 }
 
 async function verifyLoginOTP() {
@@ -681,7 +701,7 @@ async function verifyLoginOTP() {
   btn.innerHTML = '<span class="spinner"></span> Verificando…'
   clearMsg('msg-verify-login')
 
-  const { error } = await sb.auth.verifyOtp({ email: pendingLoginEmail, token: code, type: 'email' })
+  const { error } = await sb.auth.verifyOtp({ email: pendingLoginEmail, token: code, type: 'magiclink' })
   btn.disabled = false
   btn.textContent = 'Confirmar e entrar'
 
@@ -1140,9 +1160,21 @@ document.getElementById('modal-overlay').addEventListener('click', e => {
 
 // ---- INIT ----
 sb.auth.onAuthStateChange((event, session) => {
-  if (event === 'SIGNED_OUT') return
+  if (event === 'SIGNED_OUT') {
+    pendingLoginEmail = ''
+    return
+  }
   if (!session) return
-  if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
+
+  const isGoogle = session.user?.app_metadata?.provider === 'google'
+
+  if (isGoogle) {
+    openDashboard()
+    return
+  }
+
+  // Email+senha+OTP: só abre após OTP verificado (pendingLoginEmail zerado)
+  if (event === 'SIGNED_IN' && !pendingLoginEmail) {
     openDashboard()
   }
 })
